@@ -227,11 +227,20 @@ async function sendTx(){
             }
         })
     } catch(err){
-         const now = new Date();
-        await sendSlackMsg(`${now}, failed to execute polkadot, ${err.toString()}, ${err.stack}`);
-        console.log("failed to execute.", err.toString(), err.stack)
         data.error = err.toString()
-        console.log(`${data.executedAt},${data.chainId},${data.txhash},${data.startTime},${data.endTime},${data.latency},${data.txFee},${data.txFeeInUSD},${data.resourceUsedOfLatestBlock},${data.numOfTxInLatestBlock},${data.pingTime},${data.error}`)
+        const errorCode = `${data.executedAt},${data.chainId},${data.txhash},${data.startTime},${data.endTime},${data.latency},${data.txFee},${data.txFeeInUSD},${data.resourceUsedOfLatestBlock},${data.numOfTxInLatestBlock},${data.pingTime},${data.error}`
+    
+        if (err.toString().includes("RPC-CORE: submitAndWatchExtrinsic(extrinsic: Extrinsic): ExtrinsicStatus:: 1010: Invalid Transaction: Transaction has a bad signature")) {
+          console.log(err)
+          sendSlackMsg(`Polkadot submitAndWatchExtrinsic: ${err.toString()}`)
+          process.exit(1);
+        } else {
+          const now = new Date();
+          await sendSlackMsg(`${now}, failed to execute polkadot, ${err.toString()}, ${err.stack}`);
+          console.log("failed to execute.", err.toString(), err.stack)
+          console.log(errorCode)
+        }
+    
     }
 }
 
