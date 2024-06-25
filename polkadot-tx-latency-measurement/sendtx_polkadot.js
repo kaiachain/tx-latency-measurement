@@ -227,11 +227,20 @@ async function sendTx(){
             }
         })
     } catch(err){
-         const now = new Date();
-        await sendSlackMsg(`${now}, failed to execute polkadot, ${err.toString()}`);
-        console.log("failed to execute.", err.toString())
         data.error = err.toString()
-        console.log(`${data.executedAt},${data.chainId},${data.txhash},${data.startTime},${data.endTime},${data.latency},${data.txFee},${data.txFeeInUSD},${data.resourceUsedOfLatestBlock},${data.numOfTxInLatestBlock},${data.pingTime},${data.error}`)
+        const errorCode = `${data.executedAt},${data.chainId},${data.txhash},${data.startTime},${data.endTime},${data.latency},${data.txFee},${data.txFeeInUSD},${data.resourceUsedOfLatestBlock},${data.numOfTxInLatestBlock},${data.pingTime},${data.error}`
+    
+        if (err.toString().includes("RPC-CORE: submitAndWatchExtrinsic(extrinsic: Extrinsic): ExtrinsicStatus:: 1010: Invalid Transaction: Transaction has a bad signature")) {
+          console.log(err)
+          sendSlackMsg(`Polkadot submitAndWatchExtrinsic: ${err.toString()}`)
+          process.exit(1);
+        } else {
+          const now = new Date();
+          await sendSlackMsg(`${now}, failed to execute polkadot, ${err.toString()}, ${err.stack}`);
+          console.log("failed to execute.", err.toString(), err.stack)
+          console.log(errorCode)
+        }
+    
     }
 }
 
@@ -256,13 +265,13 @@ async function main(){
         try{
             await sendTx()
         } catch(err){
-            console.log("failed to execute sendTx", err.toString())
+            console.log("failed to execute sendTx", err.toString(), err.stack)
         }
     }, interval)
     try{
         await sendTx()
     } catch(err){
-        console.log("failed to execute sendTx", err.toString())
+        console.log("failed to execute sendTx", err.toString(), err.stack)
     }
 }
 
@@ -270,5 +279,5 @@ try{
     main()
 }
 catch(err){
-    console.log("failed to execute main", err.toString())
+    console.log("failed to execute main", err.toString(), err.stack)
 }
