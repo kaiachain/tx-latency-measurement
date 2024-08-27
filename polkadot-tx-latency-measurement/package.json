@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "@google-cloud/storage": "^6.0.0",
-    "@polkadot/api": "10.9.1",
+    "@polkadot/api": "12.4.2",
     "aws-sdk": "^2.1133.0",
     "axios": "^0.27.2",
     "coingecko-api": "^1.0.10",
