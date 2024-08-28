@@ -10,12 +10,12 @@
   "license": "ISC",
   "dependencies": {
     "aws-sdk": "^2.1101.0",
-    "axios": "0.26.1",
-    "caver-js": "1.9.0",
+    "axios": "1.7.5",
+    "caver-js": "1.12.2",
     "coingecko-api": "1.0.10",
-    "dotenv": "16.0.0",
-    "moment": "2.29.3",
+    "dotenv": "16.4.5",
+    "moment": "2.30.1",
     "parquetjs-lite": "0.8.7",
-    "@google-cloud/storage": "^6.0.0"
+    "@google-cloud/storage": "^7.12.0"
   }
 }
