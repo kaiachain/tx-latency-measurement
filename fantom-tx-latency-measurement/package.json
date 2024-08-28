@@ -1,12 +1,12 @@
 {
   "dependencies": {
     "aws-sdk": "^2.1132.0",
-    "axios": "0.27.2",
+    "axios": "1.7.5",
     "coingecko-api": "1.0.10",
-    "dotenv": "16.0.1",
-    "moment": "2.29.3",
+    "dotenv": "16.4.5",
+    "moment": "2.30.1",
     "parquetjs-lite": "0.8.7",
-    "web3": "1.8.1",
-    "@google-cloud/storage": "^6.0.0"
+    "web3": "1.8.2",
+    "@google-cloud/storage": "^7.12.0"
   }
 }
