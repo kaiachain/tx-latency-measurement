@@ -12,6 +12,12 @@ import CoinGecko from "coingecko-api";
 import { Storage } from "@google-cloud/storage";
 import { JSONPreset } from "lowdb/node";
 
+import { NodeInterface__factory } from "@arbitrum/sdk/dist/lib/abi/factories/NodeInterface__factory.js";
+import { SequencerInbox__factory } from "@arbitrum/sdk/dist/lib/abi/factories/SequencerInbox__factory.js";
+import { NODE_INTERFACE_ADDRESS } from "@arbitrum/sdk/dist/lib/dataEntities/constants.js";
+import { getL2Network, addDefaultLocalNetwork } from "@arbitrum/sdk";
+import * as ethers from "ethers";
+
 let rpc = process.env.PUBLIC_RPC_URL;
 const provider = new Web3.providers.HttpProvider(rpc);
 const web3 = new Web3(provider);
@@ -19,6 +25,9 @@ const CoinGeckoClient = new CoinGecko();
 
 const privateKey = process.env.PRIVATE_KEY;
 var PrevNonce = null;
+const l1Provider = new ethers.providers.JsonRpcProvider("https://rpc.ankr.com/eth");
+const l2Provider = new ethers.providers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
+addDefaultLocalNetwork();
 
 async function makeParquetFile(data) {
   var schema = new parquet.ParquetSchema({
@@ -310,22 +319,54 @@ async function l1commitmentprocess(db, hash, createdAt) {
     pingTime: 0,
   };
 
-  const response = await fetch(`${process.env.L1FINALITYSCRAPERURL}/root_end?from_chain=42161&hash=${hash}`);
-  console.log("l1GoResponseArb", response);
+  let blockNumber;
+  try {
+    const receipt = await l2Provider.getTransactionReceipt(hash);
+    blockNumber = receipt.blockNumber;
+  } catch (e) {
+    console.log("Check blockNumber fail, reason:", e.toString());
+    return null;
+  }
+
+  const l2Network = await getL2Network(l2Provider);
+  const nodeInterface = NodeInterface__factory.connect(NODE_INTERFACE_ADDRESS, l2Provider);
+  const sequencer = SequencerInbox__factory.connect(l2Network.ethBridge.sequencerInbox, l1Provider);
+
+  let result;
+  try {
+      const batchResult = await nodeInterface.functions.findBatchContainingBlock(blockNumber);
+      result = batchResult.batch;
+  } catch (e) {
+    console.log("Check l2 block fail, reason: ", e.toString());
+    return null;
+  }
+
+  const queryBatch = sequencer.filters.SequencerBatchDelivered(result);
+  const emittedEvent = await sequencer.queryFilter(queryBatch);
+
+  let response
+  try {
+    response = await fetch(`https://api.etherscan.io/api?module=block&action=getblockreward&blockno=${emittedEvent[0].blockNumber}&apikey=CRS58RM55IBNB12QYF4JBJMT4MMSZQFQ22`);
+  } catch (e) {
+    console.log("api.etherscan.io query fail, reason: ", e.toString());
+    return null;
+  }
+
   if (!response.ok) {
     const postIndex = db.data.posts.findIndex((post) => post.l2TxHash === hash);
-    if (postIndex !== -1) {
-      console.log("L1 tx hash not found");
-      db.data.posts[postIndex].status = "failed";
-      await sendSlackMsg(`L1 tx hash not found for ${hash} in Arbitrium!`);
-      return null;
-    } else {
-      await sendSlackMsg(`l2 ${hash} not found in Arbitrium!`);
-      return Error("l2TxHash not found.");
-    }
+    db.data.posts[postIndex].status = "failed";
+    console.log(`L1 blockNumber Not found : ${emittedEvent[0].blockNumber}`);
+    return null;
   }
-  const go_scraper_data = await response.json();
-  const finalityTiming = parseInt(go_scraper_data.root_end, 10);
+
+  let blockInfo
+  try {
+    blockInfo = await response.json();
+  } catch (e) {
+    console.log("json parsing fail, reason: ", e.toString());
+    return null;
+  }
+  const finalityTiming = parseInt(blockInfo.timeStamp, 10);
   const timeTaken = finalityTiming - createdAt;
 
   const postIndex = db.data.posts.findIndex((post) => post.l2TxHash === hash);
@@ -334,7 +375,15 @@ async function l1commitmentprocess(db, hash, createdAt) {
     db.data.posts[postIndex].status = "success";
     gcpData.latency = timeTaken;
     gcpData.hash = hash;
-    uploadToGCSL1(gcpData)
+    try {
+      await uploadChoice(gcpData);
+    } catch (err) {
+      await sendSlackMsg(`failed to upload arbitrium, ${err.toString()}`);
+      console.log(
+        `failed to ${process.env.UPLOAD_METHOD === "AWS" ? "s3" : "gcs"}.upload!! Printing instead!`,
+        err.toString()
+      );
+    }
   } else {
     await sendSlackMsg(`l2 ${hash} not found! in Arbitrium!`);
     return Error("l2TxHash not found.");
