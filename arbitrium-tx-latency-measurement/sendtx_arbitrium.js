@@ -25,8 +25,8 @@ const CoinGeckoClient = new CoinGecko();
 
 const privateKey = process.env.PRIVATE_KEY;
 var PrevNonce = null;
-const l1Provider = new ethers.providers.JsonRpcProvider("https://rpc.ankr.com/eth");
-const l2Provider = new ethers.providers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
+const l1Provider = new ethers.providers.JsonRpcProvider(process.env.L1_RPC_URL);
+const l2Provider = new ethers.providers.JsonRpcProvider(process.env.PUBLIC_RPC_URL);
 addDefaultLocalNetwork();
 
 async function makeParquetFile(data) {
