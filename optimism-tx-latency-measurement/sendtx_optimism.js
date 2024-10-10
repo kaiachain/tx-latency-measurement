@@ -11,6 +11,8 @@ import axios from "axios";
 import CoinGecko from "coingecko-api";
 import { Storage } from "@google-cloud/storage";
 import { JSONPreset } from "lowdb/node";
+import * as ethers from "ethers";
+import * as optimismSDK from "@eth-optimism/sdk";
 
 let rpc = process.env.PUBLIC_RPC_URL;
 const provider = new Web3.providers.HttpProvider(rpc);
@@ -296,51 +298,71 @@ async function l1Checker() {
 }
 
 async function l1commitmentprocess(db, hash, createdAt) {
+    await getL1SubmissionTxHash(hash)
+}
 
-  var gcpData = {
-    executedAt: new Date().getTime(),
-    txhash: "",
-    startTime: 0,
-    endTime: 0,
-    chainId: 0,
-    latency: 0,
-    error: "",
-    txFee: 0.0,
-    txFeeInUSD: 0.0,
-    resourceUsedOfLatestBlock: 0,
-    numOfTxInLatestBlock: 0,
-    pingTime: 0,
-  };
+async function getL1SubmissionTxHash(l2TxHash) {
+  // Providers for L1 and L2 networks
+  const l1Provider = new ethers.providers.JsonRpcProvider(process.env.L1_RPC_URL);
+  const l2Provider = new ethers.providers.JsonRpcProvider(process.env.PUBLIC_RPC_URL);
 
-  const response = await fetch(`${process.env.L1FINALITYSCRAPERURL}/root_end?from_chain=10&hash=${hash}`);
-  console.log("l1GoResponseOpt", response);
-  if (!response.ok) {
-    const postIndex = db.data.posts.findIndex((post) => post.l2TxHash === hash);
-    if (postIndex !== -1) {
-      console.log("L1 tx hash not found");
-      db.data.posts[postIndex].status = "failed";
-      await sendSlackMsg(`L1 tx hash not found for ${hash}!`);
-      return null;
-    } else {
-      await sendSlackMsg(`l2 ${hash} not found!`);
-      return Error("l2TxHash not found.");
+  // Instantiate the CrossChainMessenger
+  const messenger = new optimismSDK.CrossChainMessenger({
+    l1ChainId: 1,  // Ethereum Mainnet chain ID
+    l2ChainId: 10, // Optimism Mainnet chain ID
+    l1SignerOrProvider: l1Provider,
+    l2SignerOrProvider: l2Provider,
+  });
+
+  // Get the L2 transaction receipt
+  const l2Receipt = await l2Provider.getTransactionReceipt(l2TxHash);
+
+  if (!l2Receipt) {
+    console.log('Transaction receipt not found on L2');
+    return;
+  }
+
+  // Get the batch submission event on L1
+  const batchTxHash = await getBatchSubmissionTxHash(l1Provider, l2Receipt);
+
+  if (batchTxHash) {
+    console.log(`L1 submission transaction hash: ${batchTxHash}`);
+  } else {
+    console.log('L1 submission transaction not found');
+  }
+}
+
+async function getBatchSubmissionTxHash(l1Provider, l2Receipt) {
+  // Address of the CanonicalTransactionChain contract on L1
+  //const ctcAddress = '0x5E4e65926BA27467555EB562121fac00D24E9dD2'; //contract address : 491 days ago expired contract
+  const ctcAddress = '0xdfe97868233d1aa22e815a266982f2cf17685a27'; //contract address : 121 days ago expired contract
+
+  // ABI fragment for the StateBatchAppended event
+  const ctcABI = [
+    'event StateBatchAppended(uint256 indexed _batchIndex, uint256 _batchRoot, uint256 _batchSize, uint256 _prevTotalElements, bytes _extraData)'
+  ];
+
+  const ctc = new ethers.Contract(ctcAddress, ctcABI, l1Provider);
+
+  // Fetch StateBatchAppended events
+  const filter = ctc.filters.StateBatchAppended();
+  const events = await ctc.queryFilter(filter);
+
+  // Calculate the cumulative transaction index
+  const txIndexInChain = l2Receipt.transactionIndex + (l2Receipt.blockNumber * 1e6); // Simplified calculation
+
+  for (const event of events) {
+    const prevTotalElements = event.args._prevTotalElements.toNumber();
+    const batchSize = event.args._batchSize.toNumber();
+    const batchStart = prevTotalElements;
+    const batchEnd = prevTotalElements + batchSize;
+
+    if (txIndexInChain >= batchStart && txIndexInChain < batchEnd) {
+      return event.transactionHash;
     }
   }
-  const go_scraper_data = await response.json();
-  const finalityTiming = parseInt(go_scraper_data.root_end, 10);
-  const timeTaken = finalityTiming - createdAt;
 
-  const postIndex = db.data.posts.findIndex((post) => post.l2TxHash === hash);
-  if (postIndex !== -1) {
-    db.data.posts[postIndex].l1CommitTiming = timeTaken;
-    db.data.posts[postIndex].status = "success";
-    gcpData.latency = timeTaken;
-    gcpData.hash = hash;
-    uploadToGCSL1(gcpData)
-  } else {
-    await sendSlackMsg(`l2 ${hash} not found!`);
-    return Error("l2TxHash not found.");
-  }
+  return null;
 }
 
 
